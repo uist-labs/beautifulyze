@@ -1,0 +1,23 @@
+{
+  "source": "Portishead_-_Glory_Box.mp4",
+  "duration_sec": 307.11,
+  "sample_rate": 44100,
+  "tempo_bpm": 120.2,
+  "tempo_is_estimate": true,
+  "key": {
+    "tonal_center": "C",
+    "mode": "minor",
+    "confidence": 0.4
+  },
+  "dynamics": {
+    "mean_db": -18.4,
+    "range_db": 38.8
+  },
+  "brightness": {
+    "mean_hz": 1892.4,
+    "trend": "rising"
+  },
+  "harmonicity": 0.973,
+  "onset_rate": 3.777,
+  "caption": "~120 BPM, C minor, wide dynamic range, warm timbre (rising), strongly harmonic."
+}

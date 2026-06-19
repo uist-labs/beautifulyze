@@ -1,0 +1,23 @@
+{
+  "source": "Marconi_Union_-_Weightless_Part_2.mp4",
+  "duration_sec": 432.52,
+  "sample_rate": 44100,
+  "tempo_bpm": 169.4,
+  "tempo_is_estimate": true,
+  "key": {
+    "tonal_center": "G#",
+    "mode": "minor",
+    "confidence": 0.718
+  },
+  "dynamics": {
+    "mean_db": -21.5,
+    "range_db": 28.2
+  },
+  "brightness": {
+    "mean_hz": 1405.6,
+    "trend": "falling"
+  },
+  "harmonicity": 0.979,
+  "onset_rate": 5.366,
+  "caption": "~169 BPM, G# minor, wide dynamic range, warm timbre (falling), strongly harmonic."
+}

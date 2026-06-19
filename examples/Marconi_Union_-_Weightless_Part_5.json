@@ -1,0 +1,23 @@
+{
+  "source": "Marconi_Union_-_Weightless_Part_5.mp4",
+  "duration_sec": 448.12,
+  "sample_rate": 44100,
+  "tempo_bpm": 114.8,
+  "tempo_is_estimate": true,
+  "key": {
+    "tonal_center": "C",
+    "mode": "minor",
+    "confidence": 0.759
+  },
+  "dynamics": {
+    "mean_db": -20.8,
+    "range_db": 23.3
+  },
+  "brightness": {
+    "mean_hz": 1295.3,
+    "trend": "falling"
+  },
+  "harmonicity": 0.944,
+  "onset_rate": 6.03,
+  "caption": "~115 BPM, C minor, moderate dynamic range, warm timbre (falling), strongly harmonic."
+}

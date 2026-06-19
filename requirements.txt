@@ -1,0 +1,8 @@
+# Runtime dependencies for the `python beautifulyze.py …` quick path.
+# Canonical source of truth is pyproject.toml; this mirrors it for the
+# install-and-go workflow:  pip install -r requirements.txt
+#
+# System dependency: ffmpeg (decodes mp3/mp4/m4a/… — install via your OS).
+librosa>=0.11
+matplotlib>=3.8
+numpy>=1.24

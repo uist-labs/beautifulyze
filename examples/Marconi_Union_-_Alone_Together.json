@@ -1,0 +1,23 @@
+{
+  "source": "Marconi_Union_-_Alone_Together.mp4",
+  "duration_sec": 426.99,
+  "sample_rate": 44100,
+  "tempo_bpm": 80.1,
+  "tempo_is_estimate": true,
+  "key": {
+    "tonal_center": "A",
+    "mode": "minor",
+    "confidence": 0.771
+  },
+  "dynamics": {
+    "mean_db": -21.2,
+    "range_db": 26.7
+  },
+  "brightness": {
+    "mean_hz": 935.5,
+    "trend": "steady"
+  },
+  "harmonicity": 0.99,
+  "onset_rate": 3.618,
+  "caption": "~80 BPM, A minor, wide dynamic range, warm timbre (steady), strongly harmonic."
+}

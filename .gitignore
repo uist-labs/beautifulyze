@@ -1,0 +1,30 @@
+# ── Local audio inputs ────────────────────────────────────────────
+# Copyrighted source recordings live here for local testing only.
+# Never commit them — beautifulyze reads audio from any path you pass it.
+/audio/
+
+# ── Generated renders at the repo root ────────────────────────────
+# Ad-hoc renders land beside the audio you point the tool at; the
+# curated showcase lives in examples/ and IS tracked.
+/*.png
+/*.json
+
+# ── Python ────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+.pytest_cache/
+.ruff_cache/
+
+# ── OS / editor junk ──────────────────────────────────────────────
+.DS_Store
+*.swp
+*~
+.idea/
+.vscode/
