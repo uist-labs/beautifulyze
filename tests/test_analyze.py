@@ -66,3 +66,43 @@ def test_collect_inputs_expands_directories(tmp_path):
     found = bz.collect_inputs([tmp_path])
 
     assert [p.name for p in found] == ["a.flac", "b.mp3"]
+
+
+# ── slice_audio (windowing for --start/--end / --linear reveal) ────
+def test_slice_audio_both_bounds():
+    sr = 10
+    y = np.arange(100, dtype=float)
+    out = bz.slice_audio(y, sr, start=2.0, end=5.0)
+    assert len(out) == 30          # (5 - 2) s * 10 Hz
+    assert out[0] == 20.0          # 2.0 s * 10 Hz
+
+
+def test_slice_audio_start_only():
+    sr = 10
+    y = np.arange(100, dtype=float)
+    out = bz.slice_audio(y, sr, start=2.0, end=None)
+    assert len(out) == 80
+    assert out[0] == 20.0
+
+
+def test_slice_audio_end_only():
+    sr = 10
+    y = np.arange(100, dtype=float)
+    out = bz.slice_audio(y, sr, start=None, end=5.0)
+    assert len(out) == 50
+    assert out[-1] == 49.0
+
+
+def test_slice_audio_no_bounds_returns_input():
+    y = np.arange(10, dtype=float)
+    assert bz.slice_audio(y, 10, start=None, end=None) is y
+
+
+def test_analyze_linear_writes_png(tmp_path):
+    wav = tmp_path / "tone.wav"
+    _write_tone(wav, seconds=2.0)
+    png = tmp_path / "tone_linear.png"
+
+    bz.analyze(wav, output=png, linear=True, write_digest=False)
+
+    assert png.exists() and png.stat().st_size > 0

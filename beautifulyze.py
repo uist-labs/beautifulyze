@@ -46,6 +46,7 @@ N_MELS = 256
 HPSS_MARGIN = 3.0
 OUTPUT_DPI = 180
 DURATION_NORM = True     # Normalize x-axis to 0.0–1.0 for cross-song comparison
+N_FFT = 4096             # STFT window for --linear (linear-frequency) renders
 
 AUDIO_EXTS = {
     ".wav", ".flac", ".mp3", ".mp4", ".m4a", ".aac",
@@ -108,6 +109,15 @@ def load_audio(path):
             f"  Original error: {exc}"
         ) from exc
     return y, int(sr)
+
+
+def slice_audio(y, sr, start=None, end=None):
+    """Return the [start, end]-second slice of `y`. Either bound may be None."""
+    if start is None and end is None:
+        return y
+    a = int(start * sr) if start is not None else 0
+    b = int(end * sr) if end is not None else len(y)
+    return y[a:b]
 
 
 def extract_features(
@@ -410,6 +420,42 @@ def render_figure(feat, output, *, title, digest=None, duration_norm=True, dpi=O
     plt.close(fig)
 
 
+def render_linear(y, sr, output, *, title, n_fft=N_FFT, hop_length=HOP_LENGTH,
+                  dpi=OUTPUT_DPI, offset=0.0):
+    """Draw a single-panel linear-frequency STFT spectrogram and save it.
+
+    Unlike the mel figure, the frequency axis here is *linear* — the faithful
+    representation in which spatial content (e.g. images hidden in a track) is
+    drawn. Pair with --start/--end to zoom in on a region.
+    """
+    S_db = librosa.amplitude_to_db(np.abs(librosa.stft(y, n_fft=n_fft,
+                                                        hop_length=hop_length)),
+                                   ref=np.max)
+    fig, ax = plt.subplots(figsize=(28, 11), facecolor=BG)
+    img = librosa.display.specshow(
+        S_db, sr=sr, hop_length=hop_length, x_axis="time", y_axis="hz",
+        ax=ax, cmap="magma", vmin=-80, vmax=0,
+    )
+    ax.set_facecolor(PANEL)
+    ax.tick_params(colors=WHITE, labelsize=9)
+    for spine in ax.spines.values():
+        spine.set_edgecolor(SPINE)
+    if offset:
+        ax.xaxis.set_major_formatter(
+            FuncFormatter(lambda x, _pos: f"{x + offset:.0f}s")
+        )
+    ax.set_xlabel("Time" + (f" (offset {offset:.0f}s)" if offset else " (s)"),
+                  color=WHITE)
+    ax.set_ylabel("Hz", color=WHITE)
+    cbar = fig.colorbar(img, ax=ax, format="%+2.0f dB", pad=0.01)
+    cbar.ax.yaxis.set_tick_params(color=WHITE, labelcolor=WHITE)
+    fig.patch.set_facecolor(BG)
+    fig.suptitle(f"{title.replace('_', ' ')} — linear STFT",
+                 color=WHITE, fontsize=14, y=0.98)
+    plt.savefig(output, dpi=dpi, bbox_inches="tight", facecolor=BG)
+    plt.close(fig)
+
+
 # ─────────────────────────────────────────────
 #  ORCHESTRATION
 # ─────────────────────────────────────────────
@@ -417,11 +463,15 @@ def analyze(
     filepath,
     output=None,
     *,
+    linear=False,
+    start=None,
+    end=None,
     duration_norm=DURATION_NORM,
     write_digest=True,
     hop_length=HOP_LENGTH,
     n_mels=N_MELS,
     hpss_margin=HPSS_MARGIN,
+    n_fft=N_FFT,
     dpi=OUTPUT_DPI,
 ):
     """Render one audio file to a PNG (+ JSON digest). Returns the digest dict."""
@@ -430,13 +480,18 @@ def analyze(
 
     print(f"Loading: {filepath.name}")
     y, sr = load_audio(filepath)
+    y = slice_audio(y, sr, start, end)
     duration = librosa.get_duration(y=y, sr=sr)
     print(f"  Duration: {duration:.1f}s  SR: {sr}Hz")
 
-    print("  Extracting features (HPSS, mel, chroma, onsets)...")
-    feat = extract_features(
-        y, sr, hop_length=hop_length, n_mels=n_mels, hpss_margin=hpss_margin
-    )
+    # Features feed the mel figure and/or the digest. In linear mode we only
+    # need them if a digest was requested.
+    feat = None
+    if not linear or write_digest:
+        print("  Extracting features (HPSS, mel, chroma, onsets)...")
+        feat = extract_features(
+            y, sr, hop_length=hop_length, n_mels=n_mels, hpss_margin=hpss_margin
+        )
 
     digest = None
     if write_digest:
@@ -445,10 +500,16 @@ def analyze(
         print(f"  {digest['caption']}")
 
     print("  Rendering...")
-    render_figure(
-        feat, output, title=filepath.stem, digest=digest,
-        duration_norm=duration_norm, dpi=dpi,
-    )
+    if linear:
+        render_linear(
+            y, sr, output, title=filepath.stem, n_fft=n_fft,
+            hop_length=hop_length, dpi=dpi, offset=start or 0.0,
+        )
+    else:
+        render_figure(
+            feat, output, title=filepath.stem, digest=digest,
+            duration_norm=duration_norm, dpi=dpi,
+        )
     print(f"  Saved: {output}")
 
     if digest is not None:
@@ -489,6 +550,19 @@ def main(argv=None):
         "-o", "--output", help="Output PNG path (only valid with a single input)"
     )
     parser.add_argument(
+        "--linear", action="store_true",
+        help="Render a single-panel linear-frequency STFT instead of the mel "
+        "figure — the faithful view for spotting images hidden in a track",
+    )
+    parser.add_argument(
+        "--start", type=float, default=None,
+        help="Trim to start at this time (seconds) before rendering",
+    )
+    parser.add_argument(
+        "--end", type=float, default=None,
+        help="Trim to end at this time (seconds) before rendering",
+    )
+    parser.add_argument(
         "--no-normalize", action="store_true",
         help="Use wall-clock time on the x-axis instead of a 0–1 position",
     )
@@ -501,8 +575,14 @@ def main(argv=None):
         "--hpss-margin", type=float, default=HPSS_MARGIN,
         help="Harmonic/percussive separation margin",
     )
+    parser.add_argument(
+        "--n-fft", type=int, default=N_FFT, help="STFT window for --linear",
+    )
     parser.add_argument("--dpi", type=int, default=OUTPUT_DPI, help="Output PNG DPI")
     args = parser.parse_args(argv)
+
+    if args.start is not None and args.end is not None and args.start >= args.end:
+        parser.error("--start must be less than --end")
 
     files = collect_inputs(args.inputs)
     if not files:
@@ -516,11 +596,15 @@ def main(argv=None):
             analyze(
                 f,
                 output=args.output,
+                linear=args.linear,
+                start=args.start,
+                end=args.end,
                 duration_norm=not args.no_normalize,
                 write_digest=not args.no_digest,
                 n_mels=args.n_mels,
                 hop_length=args.hop_length,
                 hpss_margin=args.hpss_margin,
+                n_fft=args.n_fft,
                 dpi=args.dpi,
             )
         except (FileNotFoundError, RuntimeError) as exc:

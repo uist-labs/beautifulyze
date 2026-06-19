@@ -16,7 +16,7 @@ timbre at a glance.
    onset rate — topped with a one-line caption that grounds the model's reading
    in hard numbers.
 
-![Arvo Pärt — Spiegel im Spiegel](examples/Arvo_Pärt_-_Spiegel_im_Spiegel_-_Mozart_Week_Salzburg_2014.png)
+![Arvo Pärt — Spiegel im Spiegel](examples/Arvo_Pärt_-_Spiegel_im_Spiegel.png)
 
 The image above is Arvo Pärt's *Spiegel im Spiegel*. You can *read* it: the
 harmonic panel shows steady, near-metronomic piano arpeggios; the chromagram
@@ -57,16 +57,20 @@ beautifulyze track.mp3 -o out.png      # choose the output path
 beautifulyze track.mp3 --no-normalize  # x-axis in wall-clock seconds, not 0–1
 beautifulyze track.mp3 --no-digest     # picture only, skip the JSON
 beautifulyze album/                    # render every audio file in a folder
+beautifulyze track.mp3 --linear --start 326 --end 338   # linear STFT of a window
 ```
 
 | Flag | Default | Purpose |
 |------|---------|---------|
 | `-o, --output` | `<name>.png` | Output PNG path (single input only) |
+| `--linear` | off | Render a linear-frequency STFT instead of the mel figure (see below) |
+| `--start` / `--end` | — | Trim to a time window (seconds) before rendering |
 | `--no-normalize` | off | Use wall-clock time instead of a 0–1 position on the x-axis |
 | `--no-digest` | off | Skip the JSON digest |
 | `--n-mels` | 256 | Mel bands (vertical resolution of the spectrograms) |
 | `--hop-length` | 256 | STFT hop (horizontal/time resolution) |
 | `--hpss-margin` | 3.0 | Harmonic/percussive separation aggressiveness |
+| `--n-fft` | 4096 | STFT window for `--linear` |
 | `--dpi` | 180 | Output PNG resolution |
 
 The x-axis defaults to a **normalized 0–1 position** so two tracks of different
@@ -129,6 +133,27 @@ read the music. A prompt that works well:
 
 The digest keeps the model honest (it can cite the actual tempo, key, and
 dynamic range), and the picture gives it the shape the numbers can't.
+
+## Hidden images (`--linear`)
+
+The default panels use a **mel** frequency scale — perceptual, great for musical
+structure, but it warps frequency and so distorts anything *drawn* into a
+spectrogram. For that, use `--linear`: a single-panel **linear-frequency** STFT,
+the faithful representation. Pair it with `--start`/`--end` to zoom.
+
+The classic test case is Aphex Twin's "ΔMi⁻¹=−αΣn=1NDi[n]…" (informally
+*[Equation]* / *Formula*), which famously hides Richard D. James' face in the
+spectrogram of its final seconds:
+
+```bash
+beautifulyze "Aphex Twin - Formula.mp4" --linear --start 326 --end 338 --no-digest
+```
+
+![Aphex Twin — the face hidden in the spectrogram](examples/Aphex_Twin_-_Formula_face.png)
+
+There he is. (This source is a lossy copy band-limited to ~16 kHz, which clips
+the top of the skull — the face is intact regardless.) The same view will reveal
+any image an artist tucks into the frequency domain.
 
 ## Examples
 

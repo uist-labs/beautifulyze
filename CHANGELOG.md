@@ -21,6 +21,9 @@ First public release.
 - Proper CLI (`argparse`): positional files **or** directories, `-o/--output`,
   `--no-normalize`, `--no-digest`, and feature knobs (`--n-mels`,
   `--hop-length`, `--hpss-margin`, `--dpi`).
+- **`--linear` reveal mode**: a single-panel linear-frequency STFT (the faithful
+  view for images drawn into a spectrogram), with `--start`/`--end` windowing
+  and `--n-fft`. Showcased by the Aphex Twin "[Equation]" hidden-face example.
 - Installable as a `beautifulyze` console command (`pyproject.toml`) or runnable
   directly with `requirements.txt`.
 - Actionable errors for a missing file or a missing ffmpeg decoder; batch runs

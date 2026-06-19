@@ -1,0 +1,23 @@
+{
+  "source": "Arvo_P\u00e4rt_-_Spiegel_im_Spiegel.mp4",
+  "duration_sec": 627.05,
+  "sample_rate": 44100,
+  "tempo_bpm": 76.6,
+  "tempo_is_estimate": true,
+  "key": {
+    "tonal_center": "A",
+    "mode": "minor",
+    "confidence": 0.867
+  },
+  "dynamics": {
+    "mean_db": -36.5,
+    "range_db": 22.7
+  },
+  "brightness": {
+    "mean_hz": 1038.4,
+    "trend": "rising"
+  },
+  "harmonicity": 0.997,
+  "onset_rate": 3.003,
+  "caption": "~77 BPM, A minor, moderate dynamic range, warm timbre (rising), strongly harmonic."
+}
