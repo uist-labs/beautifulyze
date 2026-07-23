@@ -2,9 +2,9 @@
 
 **Render a piece of music into a picture a language model can read.**
 
-Hand an LLM a raw waveform and it learns almost nothing. Hand it *this* — eight
+Hand an LLM a raw waveform and it learns almost nothing. Hand it *this* - eight
 aligned views of the same track on one normalized timeline, plus a compact
-numeric digest — and it can reason about structure, harmony, dynamics, and
+numeric digest - and it can reason about structure, harmony, dynamics, and
 timbre at a glance.
 
 `beautifulyze` takes one audio file and produces two things:
@@ -12,16 +12,16 @@ timbre at a glance.
 1. a multi-panel **PNG** (mel spectrogram, harmonic/percussive split,
    chromagram, onset strength, spectral centroid + bandwidth, and an RMS energy
    arc), and
-2. a small **JSON digest** — tempo, key, dynamics, brightness, harmonicity,
-   onset rate — topped with a one-line caption that grounds the model's reading
+2. a small **JSON digest** - tempo, key, dynamics, brightness, harmonicity,
+   onset rate - topped with a one-line caption that grounds the model's reading
    in hard numbers.
 
-![Arvo Pärt — Spiegel im Spiegel](examples/Arvo_Pärt_-_Spiegel_im_Spiegel.png)
+![Arvo Pärt - Spiegel im Spiegel](examples/Arvo_Pärt_-_Spiegel_im_Spiegel.png)
 
 The image above is Arvo Pärt's *Spiegel im Spiegel*. You can *read* it: the
 harmonic panel shows steady, near-metronomic piano arpeggios; the chromagram
 holds one calm tonal center for ten unbroken minutes; the RMS arc is almost
-flat — the famous stillness of Pärt's tintinnabuli — lifting only once, gently,
+flat - the famous stillness of Pärt's tintinnabuli - lifting only once, gently,
 near the end. Almost nothing "happens," and yet the structure is unmistakable.
 That legibility is the whole point.
 
@@ -29,20 +29,20 @@ That legibility is the whole point.
 
 This started as a way to let an LLM *experience* music it cannot hear. A
 spectrogram alone is dense and easy to misread; a pile of numbers has no shape.
-Putting both in front of the model — a picture for gestalt, a digest for
-precision — lets it describe a piece the way a careful listener would.
+Putting both in front of the model - a picture for gestalt, a digest for
+precision - lets it describe a piece the way a careful listener would.
 
 ## Quick start
 
 ```bash
-# 1. System dependency: ffmpeg (decodes mp3 / mp4 / m4a / …)
+# 1. System dependency: ffmpeg (decodes mp3 / mp4 / m4a / ...)
 sudo apt install ffmpeg        # or: brew install ffmpeg
 
-# 2a. Install as a command…
+# 2a. Install as a command...
 pip install .
 beautifulyze song.flac
 
-# 2b. …or just run the script
+# 2b. ...or just run the script
 pip install -r requirements.txt
 python beautifulyze.py song.flac
 ```
@@ -52,9 +52,9 @@ Either way you get `song.png` and `song.json` next to where you ran it.
 ## Usage
 
 ```bash
-beautifulyze track.mp3                 # → track.png + track.json
+beautifulyze track.mp3                 # -> track.png + track.json
 beautifulyze track.mp3 -o out.png      # choose the output path
-beautifulyze track.mp3 --no-normalize  # x-axis in wall-clock seconds, not 0–1
+beautifulyze track.mp3 --no-normalize  # x-axis in wall-clock seconds, not 0-1
 beautifulyze track.mp3 --no-digest     # picture only, skip the JSON
 beautifulyze album/                    # render every audio file in a folder
 beautifulyze track.mp3 --linear --start 326 --end 338   # linear STFT of a window
@@ -64,8 +64,8 @@ beautifulyze track.mp3 --linear --start 326 --end 338   # linear STFT of a windo
 |------|---------|---------|
 | `-o, --output` | `<name>.png` | Output PNG path (single input only) |
 | `--linear` | off | Render a linear-frequency STFT instead of the mel figure (see below) |
-| `--start` / `--end` | — | Trim to a time window (seconds) before rendering |
-| `--no-normalize` | off | Use wall-clock time instead of a 0–1 position on the x-axis |
+| `--start` / `--end` | - | Trim to a time window (seconds) before rendering |
+| `--no-normalize` | off | Use wall-clock time instead of a 0-1 position on the x-axis |
 | `--no-digest` | off | Skip the JSON digest |
 | `--n-mels` | 256 | Mel bands (vertical resolution of the spectrograms) |
 | `--hop-length` | 256 | STFT hop (horizontal/time resolution) |
@@ -73,7 +73,7 @@ beautifulyze track.mp3 --linear --start 326 --end 338   # linear STFT of a windo
 | `--n-fft` | 4096 | STFT window for `--linear` |
 | `--dpi` | 180 | Output PNG resolution |
 
-The x-axis defaults to a **normalized 0–1 position** so two tracks of different
+The x-axis defaults to a **normalized 0-1 position** so two tracks of different
 lengths line up for side-by-side comparison.
 
 ## Reading the panels
@@ -109,12 +109,12 @@ Every render writes a sibling `.json`. For Portishead's *Glory Box*:
 
 | Field | Meaning |
 |-------|---------|
-| `tempo_bpm` | Estimated tempo. `tempo_is_estimate` is always true — beat tracking is unreliable on rubato and ambient material, so treat it as a hint. |
-| `key` | Best-fit key via Krumhansl–Schmuckler correlation, with a 0–1 `confidence`. Low confidence (e.g. 0.4 above) is honest, not a bug. |
-| `dynamics` | Mean loudness and a silence-robust dynamic range (95th − 5th percentile), in dB. |
+| `tempo_bpm` | Estimated tempo. `tempo_is_estimate` is always true - beat tracking is unreliable on rubato and ambient material, so treat it as a hint. |
+| `key` | Best-fit key via Krumhansl-Schmuckler correlation, with a 0-1 `confidence`. Low confidence (e.g. 0.4 above) is honest, not a bug. |
+| `dynamics` | Mean loudness and a silence-robust dynamic range (95th - 5th percentile), in dB. |
 | `brightness` | Mean spectral centroid in Hz, and whether it's `rising`, `falling`, or `steady`. |
 | `harmonicity` | Fraction of energy that is harmonic: `1.0` = purely tonal, `0.0` = purely percussive. |
-| `onset_rate` | Note onsets per second — rhythmic density. |
+| `onset_rate` | Note onsets per second - rhythmic density. |
 | `caption` | A single grounded sentence stitched from the fields above. |
 
 ## Using it with an LLM
@@ -136,7 +136,7 @@ dynamic range), and the picture gives it the shape the numbers can't.
 
 ## Hidden images (`--linear`)
 
-The default panels use a **mel** frequency scale — perceptual, great for musical
+The default panels use a **mel** frequency scale - perceptual, great for musical
 structure, but it warps frequency and so distorts anything *drawn* into a
 spectrogram. For that, use `--linear`: a single-panel **linear-frequency** STFT,
 the faithful representation. Pair it with `--start`/`--end` to zoom.
@@ -149,15 +149,15 @@ spectrogram of its final seconds:
 beautifulyze "Aphex Twin - Formula.mp4" --linear --start 326 --end 338 --no-digest
 ```
 
-![Aphex Twin — the face hidden in the spectrogram](examples/Aphex_Twin_-_Formula_face.png)
+![Aphex Twin - the face hidden in the spectrogram](examples/Aphex_Twin_-_Formula_face.png)
 
 There he is. (This source is a lossy copy band-limited to ~16 kHz, which clips
-the top of the skull — the face is intact regardless.) The same view will reveal
+the top of the skull - the face is intact regardless.) The same view will reveal
 any image an artist tucks into the frequency domain.
 
 ## Examples
 
-The [`examples/`](examples/) gallery renders a deliberately wide spread — from
+The [`examples/`](examples/) gallery renders a deliberately wide spread - from
 Pärt's near-motionless minimalism through Marconi Union's ambient *Weightless*
 suite to Portishead's beat-driven *Glory Box*. Put the ambient renders next to
 Portishead and the contrast is immediate: flat versus dramatic RMS arcs, near-
@@ -165,10 +165,10 @@ empty versus busy percussive panels, dark versus rising brightness.
 
 ## Roadmap
 
-- **Structural segmentation** — detect and shade musical form (e.g. ABA) on the
+- **Structural segmentation** - detect and shade musical form (e.g. ABA) on the
   timeline.
-- **Beat-grid overlay** — draw the estimated beat/downbeat grid.
-- **Light theme** — a print-friendly palette.
+- **Beat-grid overlay** - draw the estimated beat/downbeat grid.
+- **Light theme** - a print-friendly palette.
 
 ## Development
 
@@ -184,7 +184,7 @@ tone (concert A) and checks the digest reads it correctly.
 
 ## License
 
-Apache 2.0 — see [LICENSE](LICENSE). Copyright 2026 UIST Labs, LLC.
+Apache 2.0 - see [LICENSE](LICENSE). Copyright 2026 UIST Labs, LLC.
 
 The audio recordings used to generate the example renders are **not** included
 and are the property of their respective rights holders.
