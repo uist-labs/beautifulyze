@@ -5,6 +5,7 @@ depends on the gitignored, copyrighted audio. Verifies the orchestration
 writes a PNG + a well-formed JSON digest and that the digest reads the signal
 correctly (key A, strongly harmonic).
 """
+
 import json
 
 import numpy as np
@@ -33,8 +34,15 @@ def test_analyze_writes_png_and_digest(tmp_path):
     # JSON is well-formed and carries the expected shape.
     saved = json.loads(json_path.read_text())
     for field in (
-        "source", "duration_sec", "tempo_bpm", "key",
-        "dynamics", "brightness", "harmonicity", "onset_rate", "caption",
+        "source",
+        "duration_sec",
+        "tempo_bpm",
+        "key",
+        "dynamics",
+        "brightness",
+        "harmonicity",
+        "onset_rate",
+        "caption",
     ):
         assert field in saved
     assert saved["source"] == "tone.wav"
@@ -73,8 +81,8 @@ def test_slice_audio_both_bounds():
     sr = 10
     y = np.arange(100, dtype=float)
     out = bz.slice_audio(y, sr, start=2.0, end=5.0)
-    assert len(out) == 30          # (5 - 2) s * 10 Hz
-    assert out[0] == 20.0          # 2.0 s * 10 Hz
+    assert len(out) == 30  # (5 - 2) s * 10 Hz
+    assert out[0] == 20.0  # 2.0 s * 10 Hz
 
 
 def test_slice_audio_start_only():

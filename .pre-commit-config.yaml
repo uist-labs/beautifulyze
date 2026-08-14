@@ -1,0 +1,15 @@
+# Optional local hook set:  pip install pre-commit && pre-commit install
+# Rules come from [tool.ruff] in pyproject.toml -- this file only decides when
+# ruff runs, never what it enforces.
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    # Keep this rev in sync with the pinned ruff in .github/workflows/ci.yml,
+    # so a hook that passes locally does not fail in CI.
+    rev: v0.16.3
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+      # Heads up: the codebase is not ruff-format clean yet, so the first run
+      # of this hook will rewrite files (aligned comments, grouped literals).
+      # Drop this hook if you want to keep the current hand-formatting.
+      - id: ruff-format
