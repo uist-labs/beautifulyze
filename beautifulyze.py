@@ -21,6 +21,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import shutil
+import subprocess
 import sys
 import warnings
 from dataclasses import dataclass
@@ -88,8 +90,74 @@ class Features:
     rms_db: np.ndarray
 
 
+def _ffprobe_sample_rate(path, default=44100):
+    """Native sample rate of the first audio stream, or `default` if unknowable."""
+    try:
+        out = subprocess.run(
+            [
+                "ffprobe", "-v", "error",
+                "-select_streams", "a:0",
+                "-show_entries", "stream=sample_rate",
+                "-of", "csv=p=0",
+                str(path),
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        ).stdout.decode().strip()
+        return int(out) or default
+    except (OSError, subprocess.CalledProcessError, ValueError):
+        return default
+
+
+def _ffmpeg_load(path):
+    """Decode `path` to a mono float32 waveform by piping through ffmpeg.
+
+    librosa dropped its audioread/ffmpeg fallback in 1.0, so soundfile is the
+    only backend left — and libsndfile cannot open mp4/m4a/aac containers. This
+    is that fallback, done directly and without the deprecated middleman.
+    """
+    if shutil.which("ffmpeg") is None:
+        raise RuntimeError(
+            f"Could not decode '{path}'. Compressed formats (mp4/m4a/aac/…) are "
+            f"decoded via ffmpeg, which is not on your PATH — install it and "
+            f"try again."
+        )
+    sr = _ffprobe_sample_rate(path)
+    try:
+        proc = subprocess.run(
+            [
+                "ffmpeg", "-nostdin",
+                "-i", str(path),
+                "-f", "f32le",          # raw little-endian float samples
+                "-acodec", "pcm_f32le",
+                "-ac", "1",             # downmix to mono, as librosa.load does
+                "-ar", str(sr),
+                "-",
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=True,
+        )
+    except subprocess.CalledProcessError as exc:
+        detail = exc.stderr.decode(errors="replace").strip().splitlines()
+        raise RuntimeError(
+            f"ffmpeg could not decode '{path}'.\n"
+            f"  {detail[-1] if detail else 'no error output'}"
+        ) from exc
+    # frombuffer views immutable bytes; copy so downstream analysis can write.
+    y = np.frombuffer(proc.stdout, dtype=np.float32).copy()
+    if y.size == 0:
+        raise RuntimeError(f"No decodable audio stream found in '{path}'.")
+    return y, sr
+
+
 def load_audio(path):
     """Decode any ffmpeg-readable audio file to a mono-ish float waveform.
+
+    Tries soundfile (via librosa) first — it handles wav/flac/ogg/mp3 natively
+    and quickly — then falls back to ffmpeg for everything libsndfile refuses,
+    which is every mp4/m4a/aac file.
 
     Raises actionable errors a tired operator can act on immediately.
     """
@@ -98,16 +166,10 @@ def load_audio(path):
         raise FileNotFoundError(f"Audio file not found: {path}")
     try:
         with warnings.catch_warnings():
-            # librosa routes compressed formats through audioread/ffmpeg and
-            # emits a 1.0-deprecation notice; it still works on 0.11. Hush it.
             warnings.simplefilter("ignore")
             y, sr = librosa.load(path, sr=None)
-    except Exception as exc:  # noqa: BLE001 — re-raised with guidance below
-        raise RuntimeError(
-            f"Could not decode '{path}'. Compressed formats (mp3/mp4/m4a/…) "
-            f"require ffmpeg on your PATH — install it and try again.\n"
-            f"  Original error: {exc}"
-        ) from exc
+    except Exception:  # noqa: BLE001 — soundfile can't read it; try ffmpeg
+        y, sr = _ffmpeg_load(path)
     return y, int(sr)
 
 

@@ -4,6 +4,26 @@ All notable changes to `beautifulyze` will be documented in this file. The
 format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- **Decoding mp4/m4a/aac on librosa ≥ 1.0.** librosa 1.0 removed its
+  `audioread` fallback, leaving `soundfile` as the only backend — and
+  libsndfile cannot open those containers, so every such file failed with
+  `Format not recognised` no matter how healthy the local ffmpeg was. Since
+  `requirements.txt` pins `librosa>=0.11`, any fresh install picked up 1.0 and
+  hit this. `load_audio()` now tries soundfile first and falls back to decoding
+  through ffmpeg directly, rather than by way of a removed dependency.
+- The "install ffmpeg" error no longer fires when ffmpeg *is* installed; it is
+  raised only when ffmpeg is genuinely missing from `PATH`. Undecodable files
+  now report ffmpeg's own reason instead.
+
+### Added
+- Decoder tests covering both paths (soundfile and the ffmpeg fallback), that
+  the two agree sample-for-sample, and that the error paths stay actionable.
+  They synthesize and transcode their own fixtures, and skip where ffmpeg is
+  unavailable.
+
 ## [0.1.0] — 2026-06-19
 
 First public release.
