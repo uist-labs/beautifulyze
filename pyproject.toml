@@ -38,3 +38,31 @@ beautifulyze = "beautifulyze:main"
 
 [tool.setuptools]
 py-modules = ["beautifulyze"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+# Match the oldest interpreter we claim to support, so ruff never suggests
+# syntax that would break there.
+target-version = "py39"
+# The source uses box-drawing comment banners and long-but-readable call
+# signatures; 88 would shred them, 100 fits the existing style.
+line-length = 100
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes (real bugs: unused/undefined names)
+    "I",   # isort (import order)
+    "UP",  # pyupgrade (don't write 3.6-era syntax)
+    "B",   # bugbear (likely-wrong constructs)
+    "C4",  # comprehension simplifications
+    "SIM", # obvious simplifications
+]
+
+# Deliberately NOT selected:
+#   RUF001-003  would flag the box-drawing/en-dash characters in comments
+#   N (pep8-naming)  would flag the numpy-idiomatic names (y, sr, S, S_h, S_p)
+#   ANN / D / BLE / TRY  noise for a single-module CLI

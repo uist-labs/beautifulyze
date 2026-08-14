@@ -1,0 +1,89 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  # Weekly unattended run. The point of this project's CI is to test a FRESH,
+  # UNPINNED dependency resolve -- v0.1.0 shipped a bug because librosa 1.0
+  # dropped an API and nobody noticed until a clean machine resolved it. A
+  # push-only CI would surface that on someone's new laptop; the cron surfaces
+  # it here, on a Monday morning, on its own.
+  schedule:
+    - cron: "0 6 * * 1" # Mondays 06:00 UTC
+  workflow_dispatch: # ...and on demand, for when you suspect an upstream break
+
+# A newer push to the same branch cancels the older in-flight run. Scheduled
+# runs get their own group so they are never cancelled by branch activity.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      # Ruff is the only thing lint needs -- no project install, no ffmpeg.
+      # Pinned deliberately: a lint tool that changes its mind on its own
+      # schedule turns unrelated PRs red. Bump this on purpose.
+      - name: Install ruff
+        run: pip install ruff==0.16.3
+
+      - name: ruff check
+        run: ruff check .
+
+      # Blocking: the tree was swept with `ruff format` in the same commit that
+      # added this workflow, so formatting is now a settled question rather than
+      # a running argument in review.
+      - name: ruff format --check
+        run: ruff format --check --diff .
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      # Never cancel siblings: when a fresh resolve breaks, we want to see
+      # *which* interpreters broke, not just the first one to fail.
+      fail-fast: false
+      matrix:
+        # 3.9 is the floor declared in pyproject requires-python; 3.13 is the
+        # dev environment. These are not redundant -- see the note below about
+        # which librosa each one actually resolves to.
+        python-version: ["3.9", "3.11", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          # NOTE: no `cache: pip` here, and that is deliberate. Caching wheels
+          # is exactly what would have hidden the librosa 1.0 break. Every run
+          # resolves from scratch.
+
+      # librosa decodes mp3/mp4/m4a through ffmpeg, and the suite has tests
+      # that skip themselves when it is missing. Skipped tests are not passing
+      # tests -- install it so they actually run.
+      - name: Install ffmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+          ffmpeg -version | head -n 1
+
+      - name: Install package (unpinned, fresh resolve)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[test]"
+
+      # The single most useful line in this log when a future release breaks
+      # us: what pip actually chose today.
+      - name: Record resolved dependency versions
+        run: pip list
+
+      - name: Run tests
+        run: pytest -q

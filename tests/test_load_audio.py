@@ -7,6 +7,7 @@ therefore falls back to ffmpeg itself. These tests cover both paths.
 As elsewhere in the suite, every fixture is synthesized at run time so the
 tests never depend on the gitignored, copyrighted audio.
 """
+
 import shutil
 import subprocess
 
@@ -16,9 +17,7 @@ import soundfile as sf
 
 import beautifulyze as bz
 
-needs_ffmpeg = pytest.mark.skipif(
-    shutil.which("ffmpeg") is None, reason="ffmpeg not on PATH"
-)
+needs_ffmpeg = pytest.mark.skipif(shutil.which("ffmpeg") is None, reason="ffmpeg not on PATH")
 
 
 def _write_tone(path, freq=440.0, seconds=2.0, sr=44100):
@@ -66,7 +65,7 @@ def test_load_audio_falls_back_to_ffmpeg(tmp_path, suffix, codec):
     assert out_sr == sr
     assert y.dtype == np.float32
     assert y.ndim == 1
-    assert y.flags.writeable          # analysis downstream writes in place
+    assert y.flags.writeable  # analysis downstream writes in place
     # AAC pads the head/tail, so allow slack around the 2 s source.
     assert 1.8 * sr < len(y) < 2.4 * sr
 
@@ -77,8 +76,8 @@ def test_ffmpeg_and_soundfile_agree(tmp_path):
     wav = tmp_path / "tone.wav"
     _write_tone(wav)
 
-    via_sf, sr_sf = bz.load_audio(wav)        # soundfile
-    via_ff, sr_ff = bz._ffmpeg_load(wav)      # ffmpeg
+    via_sf, sr_sf = bz.load_audio(wav)  # soundfile
+    via_ff, sr_ff = bz._ffmpeg_load(wav)  # ffmpeg
 
     assert sr_sf == sr_ff
     assert len(via_sf) == len(via_ff)

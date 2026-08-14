@@ -3,6 +3,7 @@
 These cover the pure, audio-free functions that turn extracted features into
 the machine-readable summary. Run from the repo root with `python -m pytest`.
 """
+
 import numpy as np
 import pytest
 
@@ -93,7 +94,7 @@ def _sample_digest():
 def test_build_caption_includes_key_facts():
     cap = bz.build_caption(_sample_digest())
     assert isinstance(cap, str) and cap.strip()
-    assert "56" in cap            # tempo
-    assert "A minor" in cap       # key + mode
-    assert "narrow" in cap        # dynamic-range descriptor for range_db=12
+    assert "56" in cap  # tempo
+    assert "A minor" in cap  # key + mode
+    assert "narrow" in cap  # dynamic-range descriptor for range_db=12
     assert "harmonic" in cap.lower()  # harmonicity descriptor for 0.9

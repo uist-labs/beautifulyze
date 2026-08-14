@@ -17,6 +17,7 @@ Usage:
     beautifulyze track.mp3 -o out.png --no-normalize
     beautifulyze album/                 # render every audio file in a folder
 """
+
 from __future__ import annotations
 
 import argparse
@@ -42,28 +43,44 @@ from matplotlib.ticker import FuncFormatter
 # ─────────────────────────────────────────────
 #  CONFIGURATION (defaults; all overridable via the CLI)
 # ─────────────────────────────────────────────
-GLOBAL_DB_REF = 1.0      # Fixed dB reference across all songs (not per-song max)
+GLOBAL_DB_REF = 1.0  # Fixed dB reference across all songs (not per-song max)
 HOP_LENGTH = 256
 N_MELS = 256
 HPSS_MARGIN = 3.0
 OUTPUT_DPI = 180
-DURATION_NORM = True     # Normalize x-axis to 0.0–1.0 for cross-song comparison
-N_FFT = 4096             # STFT window for --linear (linear-frequency) renders
+DURATION_NORM = True  # Normalize x-axis to 0.0–1.0 for cross-song comparison
+N_FFT = 4096  # STFT window for --linear (linear-frequency) renders
+SPEC_DB_FLOOR = 80.0  # Panels share one dB window: [peak - floor, peak]
+ENVELOPE_COLUMNS = 1600  # Line panels reduce to this many min/max columns
+
+# Tempo octaves worth reporting alongside the primary estimate. Beat trackers
+# routinely lock onto a subdivision (or a multiple) of the pulse a listener
+# taps, so a single number hides a real ambiguity — especially on slow music,
+# where the tapped tempo is often half what the onset envelope peaks at.
+TEMPO_OCTAVE_RATIOS = (0.25, 1 / 3, 0.5, 2 / 3, 1.5, 2.0, 3.0, 4.0)
+TEMPO_CANDIDATE_FLOOR = 0.55  # Report a rival only at >=55% of the peak's support
+TEMPO_PLAUSIBLE_BPM = (30.0, 300.0)
+KEY_CONFIDENCE_HEDGE = 0.6  # Below this, the caption says "possibly X minor"
 
 AUDIO_EXTS = {
-    ".wav", ".flac", ".mp3", ".mp4", ".m4a", ".aac",
-    ".ogg", ".opus", ".aiff", ".aif", ".wma",
+    ".wav",
+    ".flac",
+    ".mp3",
+    ".mp4",
+    ".m4a",
+    ".aac",
+    ".ogg",
+    ".opus",
+    ".aiff",
+    ".aif",
+    ".wma",
 }
 
 PITCH_CLASSES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 
 # Krumhansl–Schmuckler key profiles (tonic-relative weights, index 0 = tonic).
-_KS_MAJOR = np.array(
-    [6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88]
-)
-_KS_MINOR = np.array(
-    [6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17]
-)
+_KS_MAJOR = np.array([6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88])
+_KS_MINOR = np.array([6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17])
 
 
 # ─────────────────────────────────────────────
@@ -93,18 +110,26 @@ class Features:
 def _ffprobe_sample_rate(path, default=44100):
     """Native sample rate of the first audio stream, or `default` if unknowable."""
     try:
-        out = subprocess.run(
-            [
-                "ffprobe", "-v", "error",
-                "-select_streams", "a:0",
-                "-show_entries", "stream=sample_rate",
-                "-of", "csv=p=0",
-                str(path),
-            ],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            check=True,
-        ).stdout.decode().strip()
+        out = (
+            subprocess.run(
+                [
+                    "ffprobe",
+                    "-v",
+                    "error",
+                    "-select_streams",
+                    "a:0",
+                    "-show_entries",
+                    "stream=sample_rate",
+                    "-of",
+                    "csv=p=0",
+                    str(path),
+                ],
+                capture_output=True,
+                check=True,
+            )
+            .stdout.decode()
+            .strip()
+        )
         return int(out) or default
     except (OSError, subprocess.CalledProcessError, ValueError):
         return default
@@ -127,23 +152,27 @@ def _ffmpeg_load(path):
     try:
         proc = subprocess.run(
             [
-                "ffmpeg", "-nostdin",
-                "-i", str(path),
-                "-f", "f32le",          # raw little-endian float samples
-                "-acodec", "pcm_f32le",
-                "-ac", "1",             # downmix to mono, as librosa.load does
-                "-ar", str(sr),
+                "ffmpeg",
+                "-nostdin",
+                "-i",
+                str(path),
+                "-f",
+                "f32le",  # raw little-endian float samples
+                "-acodec",
+                "pcm_f32le",
+                "-ac",
+                "1",  # downmix to mono, as librosa.load does
+                "-ar",
+                str(sr),
                 "-",
             ],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            capture_output=True,
             check=True,
         )
     except subprocess.CalledProcessError as exc:
         detail = exc.stderr.decode(errors="replace").strip().splitlines()
         raise RuntimeError(
-            f"ffmpeg could not decode '{path}'.\n"
-            f"  {detail[-1] if detail else 'no error output'}"
+            f"ffmpeg could not decode '{path}'.\n  {detail[-1] if detail else 'no error output'}"
         ) from exc
     # frombuffer views immutable bytes; copy so downstream analysis can write.
     y = np.frombuffer(proc.stdout, dtype=np.float32).copy()
@@ -173,6 +202,42 @@ def load_audio(path):
     return y, int(sr)
 
 
+def envelope_reduce(x, y, columns=ENVELOPE_COLUMNS):
+    """Reduce a dense series to per-column (min, max) pairs for plotting.
+
+    A 10-minute track at hop 256 yields ~100k frames. Drawing that into ~1500
+    pixels overplots roughly 70 frames per pixel, and every line panel collapses
+    into a solid block — the shape the panel exists to show is lost to the
+    rasterizer, not to the music.
+
+    Bucketing into one column per pixel and keeping each bucket's extremes
+    preserves peaks, troughs, and silhouette at any duration. Returns
+    `(x_mid, y_min, y_max, y_mean)`; series already shorter than `columns` are
+    returned unchanged (with min == max == mean) so short inputs are untouched.
+    """
+    x = np.asarray(x)
+    y = np.asarray(y)
+    if len(y) <= columns or columns < 1:
+        return x, y, y, y
+
+    # Trim to a whole number of buckets, then reduce each along axis 1.
+    per = len(y) // columns
+    used = per * columns
+    buckets = y[:used].reshape(columns, per)
+    x_mid = x[:used].reshape(columns, per).mean(axis=1)
+    y_min = buckets.min(axis=1)
+    y_max = buckets.max(axis=1)
+    y_mean = buckets.mean(axis=1)
+
+    # Fold any remainder into the last column so the series still reaches its end.
+    if used < len(y):
+        tail = y[used:]
+        x_mid[-1] = x[used:].mean()
+        y_min[-1] = min(y_min[-1], tail.min())
+        y_max[-1] = max(y_max[-1], tail.max())
+    return x_mid, y_min, y_max, y_mean
+
+
 def slice_audio(y, sr, start=None, end=None):
     """Return the [start, end]-second slice of `y`. Either bound may be None."""
     if start is None and end is None:
@@ -182,9 +247,7 @@ def slice_audio(y, sr, start=None, end=None):
     return y[a:b]
 
 
-def extract_features(
-    y, sr, *, hop_length=HOP_LENGTH, n_mels=N_MELS, hpss_margin=HPSS_MARGIN
-):
+def extract_features(y, sr, *, hop_length=HOP_LENGTH, n_mels=N_MELS, hpss_margin=HPSS_MARGIN):
     """Run the full feature pipeline once and hand back a Features bundle."""
     duration = float(librosa.get_duration(y=y, sr=sr))
     y_h, y_p = librosa.effects.hpss(y, margin=hpss_margin)
@@ -195,9 +258,7 @@ def extract_features(
         )
         return librosa.power_to_db(S, ref=GLOBAL_DB_REF)
 
-    chroma = librosa.feature.chroma_cqt(
-        y=y_h, sr=sr, hop_length=hop_length, bins_per_octave=36
-    )
+    chroma = librosa.feature.chroma_cqt(y=y_h, sr=sr, hop_length=hop_length, bins_per_octave=36)
     rms = librosa.feature.rms(y=y, hop_length=hop_length)[0]
 
     return Features(
@@ -213,13 +274,9 @@ def extract_features(
         chroma=chroma,
         onset_h=librosa.onset.onset_strength(y=y_h, sr=sr, hop_length=hop_length),
         onset_p=librosa.onset.onset_strength(y=y_p, sr=sr, hop_length=hop_length),
-        centroid=librosa.feature.spectral_centroid(
-            y=y, sr=sr, hop_length=hop_length
-        )[0],
-        bandwidth=librosa.feature.spectral_bandwidth(
-            y=y, sr=sr, hop_length=hop_length
-        )[0],
-        rms_db=librosa.power_to_db(rms ** 2, ref=GLOBAL_DB_REF),
+        centroid=librosa.feature.spectral_centroid(y=y, sr=sr, hop_length=hop_length)[0],
+        bandwidth=librosa.feature.spectral_bandwidth(y=y, sr=sr, hop_length=hop_length)[0],
+        rms_db=librosa.power_to_db(rms**2, ref=GLOBAL_DB_REF),
     )
 
 
@@ -261,7 +318,7 @@ def describe_brightness(centroid):
     trend = "steady"
     if c.size >= 6:
         first = float(np.mean(c[: c.size // 3]))
-        last = float(np.mean(c[-c.size // 3:]))
+        last = float(np.mean(c[-c.size // 3 :]))
         rel = (last - first) / (abs(first) + 1e-9)
         trend = "rising" if rel > 0.10 else "falling" if rel < -0.10 else "steady"
     return {"mean_hz": round(mean_hz, 1), "trend": trend}
@@ -316,14 +373,77 @@ def _qual_harmonicity(h):
     return "balanced harmonic/percussive"
 
 
+def tempo_candidates(onset_env, sr, hop_length, primary):
+    """Rank the metrical levels the onset envelope actually supports.
+
+    `primary` is whatever the beat tracker committed to. A tempogram scores how
+    much periodic support each rival octave has; anything within
+    TEMPO_CANDIDATE_FLOOR of the best is worth surfacing rather than silently
+    discarding. Returns a list of `{"bpm": float, "support": float}`, strongest
+    first, always including `primary`.
+    """
+    tgram = librosa.feature.tempogram(onset_envelope=onset_env, sr=sr, hop_length=hop_length)
+    freqs = librosa.tempo_frequencies(tgram.shape[0], sr=sr, hop_length=hop_length)
+    profile = np.nan_to_num(tgram.mean(axis=1))
+
+    lo, hi = TEMPO_PLAUSIBLE_BPM
+
+    def support(bpm):
+        """Tempogram strength at `bpm`, via its nearest analysed lag."""
+        if not lo <= bpm <= hi:
+            return None
+        idx = int(np.argmin(np.abs(freqs - bpm)))
+        return float(profile[idx])
+
+    scored = {}
+    for ratio in (1.0, *TEMPO_OCTAVE_RATIOS):
+        bpm = round(primary * ratio, 1)
+        s = support(bpm)
+        if s is not None:
+            scored[bpm] = max(scored.get(bpm, 0.0), s)
+
+    if not scored:
+        return [{"bpm": round(primary, 1), "support": 1.0}]
+
+    best = max(scored.values()) or 1.0
+    ranked = sorted(
+        ({"bpm": bpm, "support": round(s / best, 3)} for bpm, s in scored.items()),
+        key=lambda c: c["support"],
+        reverse=True,
+    )
+    keep = [c for c in ranked if c["support"] >= TEMPO_CANDIDATE_FLOOR]
+    # The tracker's own answer always stays on the list, even if poorly supported.
+    if not any(abs(c["bpm"] - round(primary, 1)) < 0.05 for c in keep):
+        keep.append(next(c for c in ranked if abs(c["bpm"] - round(primary, 1)) < 0.05))
+    return keep
+
+
 def build_caption(digest):
-    """Stitch the digest fields into one honest, model-readable sentence."""
+    """Stitch the digest fields into one honest, model-readable sentence.
+
+    "Honest" is load-bearing: the caption is what a model reads first and what
+    is burned into the PNG, so an uncertain reading must *say* it is uncertain
+    here — not only in a JSON field the image never shows.
+    """
     key = digest["key"]
     parts = []
     tempo = digest.get("tempo_bpm")
     if tempo:
-        parts.append(f"~{round(tempo)} BPM")
-    parts.append(f"{key['tonal_center']} {key['mode']}")
+        # Surface one rival metrical level. A strict half/double is the reading
+        # a listener is most likely to disagree with the tracker about, so it
+        # wins over a better-supported but more exotic ratio (2/3, 3/2, …).
+        rivals = [
+            c["bpm"] for c in digest.get("tempo_candidates", []) if abs(c["bpm"] - tempo) >= 0.05
+        ]
+        octaves = [b for b in rivals if abs(b - tempo / 2) < 0.6 or abs(b - tempo * 2) < 0.6]
+        rival = (octaves or rivals or [None])[0]
+        parts.append(
+            f"~{round(tempo)} BPM (or {round(rival)})" if rival else f"~{round(tempo)} BPM"
+        )
+    key_phrase = f"{key['tonal_center']} {key['mode']}"
+    if key.get("confidence", 1.0) < KEY_CONFIDENCE_HEDGE:
+        key_phrase = f"possibly {key_phrase}"
+    parts.append(key_phrase)
     parts.append(_qual_dynamics(digest["dynamics"]["range_db"]))
     bright = digest["brightness"]
     parts.append(f"{_qual_brightness(bright['mean_hz'])} ({bright['trend']})")
@@ -335,9 +455,7 @@ def compute_digest(feat):
     """Assemble the full digest dict (incl. caption) from extracted features."""
     tempo = float(
         np.atleast_1d(
-            librosa.beat.beat_track(
-                y=feat.y_p, sr=feat.sr, hop_length=feat.hop_length
-            )[0]
+            librosa.beat.beat_track(y=feat.y_p, sr=feat.sr, hop_length=feat.hop_length)[0]
         )[0]
     )
     onsets = librosa.onset.onset_detect(
@@ -345,11 +463,14 @@ def compute_digest(feat):
     )
     onset_rate = len(onsets) / feat.duration if feat.duration else 0.0
 
+    candidates = tempo_candidates(feat.onset_p, feat.sr, feat.hop_length, tempo)
+
     digest = {
         "duration_sec": round(feat.duration, 2),
         "sample_rate": int(feat.sr),
         "tempo_bpm": round(tempo, 1),
         "tempo_is_estimate": True,
+        "tempo_candidates": candidates,
         "key": estimate_key(feat.chroma),
         "dynamics": describe_dynamics(feat.rms_db),
         "brightness": describe_brightness(feat.centroid),
@@ -381,12 +502,26 @@ def render_figure(feat, output, *, title, digest=None, duration_norm=True, dpi=O
     times_feat = make_times(feat.centroid)
     x_label = "Normalized Position (0=start, 1=end)" if duration_norm else "Time (s)"
 
+    # One dB window for all three mel panels. extract_features() already puts
+    # them on a common absolute scale via GLOBAL_DB_REF; letting specshow
+    # autoscale each panel throws that away and stretches a near-silent
+    # percussive residue to full brightness, so the picture contradicts the
+    # harmonicity number sitting next to it.
+    spec_vmax = float(max(feat.S_full.max(), feat.S_h.max(), feat.S_p.max()))
+    spec_vmin = spec_vmax - SPEC_DB_FLOOR
+
     def specshow_kwargs(ax, cmap="magma"):
-        # x-axis is always drawn as time, then relabeled to 0–1 when normalized.
-        return dict(
-            sr=sr, hop_length=hop, x_axis="time", y_axis="mel",
-            fmax=sr // 2, ax=ax, cmap=cmap,
-        )
+        return {
+            "sr": sr,
+            "hop_length": hop,
+            "x_axis": "time",
+            "y_axis": "mel",
+            "fmax": sr // 2,
+            "ax": ax,
+            "cmap": cmap,
+            "vmin": spec_vmin,
+            "vmax": spec_vmax,
+        }
 
     fig = plt.figure(figsize=(24, 22), facecolor=BG)
     gs = gridspec.GridSpec(5, 2, figure=fig, hspace=0.52, wspace=0.3)
@@ -400,18 +535,27 @@ def render_figure(feat, output, *, title, digest=None, duration_norm=True, dpi=O
         ax.xaxis.label.set_color(WHITE)
         ax.yaxis.label.set_color(WHITE)
 
-    def norm_xticks(ax):
-        # specshow draws the x-axis in seconds; relabel ticks as a 0–1 fraction
-        # via a formatter (robust to autoscale, and warning-free unlike
-        # set_xticklabels on a non-fixed locator).
+    # Every panel gets the same six gridlines at the same fractions. The line
+    # panels are plotted in 0–1 directly; the specshow panels are in seconds, so
+    # their ticks are placed at the matching second offsets. Relabelling
+    # whatever ticks specshow chose (the previous approach) left the two groups
+    # on different rulers — 0.00/0.17/0.34/… against 0.0/0.2/0.4/… — and stopped
+    # the top row short of the right edge, which quietly broke the cross-panel
+    # comparison the shared timeline exists to support.
+    TICK_FRACTIONS = (0.0, 0.2, 0.4, 0.6, 0.8, 1.0)
+
+    def norm_xticks(ax, *, in_seconds):
         if not duration_norm:
             return
-        ax.xaxis.set_major_formatter(FuncFormatter(lambda x, _pos: f"{x/duration:.2f}"))
+        span = duration if in_seconds else 1.0
+        ax.set_xlim(0.0, span)
+        ax.set_xticks([f * span for f in TICK_FRACTIONS])
+        ax.xaxis.set_major_formatter(FuncFormatter(lambda x, _pos: f"{x / span:.1f}"))
 
     # ── ROW 0: Full Mel ──────────────────────────────────────────
     ax0 = fig.add_subplot(gs[0, :])
     img = librosa.display.specshow(feat.S_full, **specshow_kwargs(ax0))
-    norm_xticks(ax0)
+    norm_xticks(ax0, in_seconds=True)
     ax0.set_xlabel(x_label, color=WHITE)
     mel_title = f"Mel Spectrogram — Full Resolution  |  {title}  |  {duration:.1f}s"
     if digest:
@@ -425,51 +569,81 @@ def render_figure(feat, output, *, title, digest=None, duration_norm=True, dpi=O
     # ── ROW 1: H/P Split ─────────────────────────────────────────
     ax1 = fig.add_subplot(gs[1, 0])
     librosa.display.specshow(feat.S_h, **specshow_kwargs(ax1, cmap="magma"))
-    norm_xticks(ax1)
+    norm_xticks(ax1, in_seconds=True)
     ax1.set_xlabel(x_label, color=WHITE)
     style(ax1, "Harmonic Component")
 
     ax2 = fig.add_subplot(gs[1, 1])
-    librosa.display.specshow(feat.S_p, **specshow_kwargs(ax2, cmap="viridis"))
-    norm_xticks(ax2)
+    # Same colormap as the harmonic panel, deliberately: two different ramps put
+    # the pair on different perceptual scales even when the dB window matches,
+    # and these two panels exist to be compared against each other.
+    librosa.display.specshow(feat.S_p, **specshow_kwargs(ax2, cmap="magma"))
+    norm_xticks(ax2, in_seconds=True)
     ax2.set_xlabel(x_label, color=WHITE)
     style(ax2, "Percussive Component")
 
     # ── ROW 2: Chromagram ────────────────────────────────────────
     ax3 = fig.add_subplot(gs[2, :])
     librosa.display.specshow(
-        feat.chroma, sr=sr, hop_length=hop, x_axis="time", y_axis="chroma",
-        ax=ax3, cmap="inferno",
+        feat.chroma,
+        sr=sr,
+        hop_length=hop,
+        x_axis="time",
+        y_axis="chroma",
+        ax=ax3,
+        cmap="inferno",
     )
-    norm_xticks(ax3)
+    norm_xticks(ax3, in_seconds=True)
     ax3.set_xlabel(x_label, color=WHITE)
     style(ax3, "Chromagram — Harmonic Source Only (36 bins/octave)")
 
+    # The line panels below are the ones that alias into solid blocks on
+    # full-length tracks, so each is drawn as a peak envelope (the extremes per
+    # pixel column) with a mean trend line over it. Half-width panels get half
+    # the columns.
+    half_cols = ENVELOPE_COLUMNS // 2
+
     # ── ROW 3: Onset strength (percussive behind, harmonic on top) ─
     ax4 = fig.add_subplot(gs[3, 0])
-    ax4.fill_between(times_onset, feat.onset_p, alpha=0.6, color="#00d4ff", label="Percussive")
-    ax4.fill_between(times_onset, feat.onset_h, alpha=0.9, color="#ff6b35", label="Harmonic")
+    xo_p, _, peak_p, _ = envelope_reduce(times_onset, feat.onset_p, half_cols)
+    xo_h, _, peak_h, _ = envelope_reduce(times_onset, feat.onset_h, half_cols)
+    # Peaks, not means: an onset envelope is *about* its spikes.
+    ax4.fill_between(xo_p, peak_p, alpha=0.6, color="#00d4ff", label="Percussive")
+    ax4.fill_between(xo_h, peak_h, alpha=0.9, color="#ff6b35", label="Harmonic")
     ax4.legend(facecolor="#1a1a1a", labelcolor=WHITE, fontsize=8)
     ax4.set_xlabel(x_label, color=WHITE)
-    style(ax4, "Onset Strength — Harmonic (top) vs Percussive")
+    norm_xticks(ax4, in_seconds=False)
+    style(ax4, "Onset Strength — Harmonic (front) vs Percussive")
 
     # ── ROW 3: Centroid + Bandwidth (clamped at zero) ────────────
     ax5 = fig.add_subplot(gs[3, 1])
     lower = np.maximum(feat.centroid - feat.bandwidth, 0)
     upper = feat.centroid + feat.bandwidth
-    ax5.fill_between(times_feat, lower, upper, alpha=0.3, color="#00d4ff", label="Bandwidth")
-    ax5.plot(times_feat, feat.centroid, color="#00d4ff", linewidth=0.8, label="Centroid")
+    xb, lo_b, _, _ = envelope_reduce(times_feat, lower, half_cols)
+    _, _, hi_b, _ = envelope_reduce(times_feat, upper, half_cols)
+    xc, _, _, cen = envelope_reduce(times_feat, feat.centroid, half_cols)
+    ax5.fill_between(xb, lo_b, hi_b, alpha=0.3, color="#00d4ff", label="Bandwidth")
+    ax5.plot(xc, cen, color="#00d4ff", linewidth=0.8, label="Centroid")
     ax5.set_ylim(bottom=0)
     ax5.legend(facecolor="#1a1a1a", labelcolor=WHITE, fontsize=8)
     ax5.set_xlabel(x_label, color=WHITE)
+    norm_xticks(ax5, in_seconds=False)
     style(ax5, "Spectral Centroid + Bandwidth (timbral brightness)")
 
     # ── ROW 4: RMS Energy Envelope ───────────────────────────────
     ax6 = fig.add_subplot(gs[4, :])
-    ax6.fill_between(times_feat, feat.rms_db, feat.rms_db.min(), alpha=0.8, color="#c084fc")
-    ax6.plot(times_feat, feat.rms_db, color="#e0aaff", linewidth=0.8)
+    xr, rms_lo, rms_hi, rms_mean = envelope_reduce(times_feat, feat.rms_db)
+    floor = float(feat.rms_db.min())
+    # Filling from the floor to the peak spans the track's whole dB range, which
+    # on compressed material is a solid rectangle with the arc buried in it.
+    # Keep that silhouette faint for the fade-in/out, and carry the actual
+    # reading in the loud/quiet ribbon and the mean line drawn over it.
+    ax6.fill_between(xr, floor, rms_hi, alpha=0.12, color="#c084fc")
+    ax6.fill_between(xr, rms_lo, rms_hi, alpha=0.75, color="#c084fc")
+    ax6.plot(xr, rms_mean, color="#f3e8ff", linewidth=1.2)
     ax6.set_xlabel(x_label, color=WHITE)
     ax6.set_ylabel("dB", color=WHITE)
+    norm_xticks(ax6, in_seconds=False)
     style(ax6, "RMS Energy Envelope (emotional intensity arc)")
 
     # ── RENDER ───────────────────────────────────────────────────
@@ -482,38 +656,42 @@ def render_figure(feat, output, *, title, digest=None, duration_norm=True, dpi=O
     plt.close(fig)
 
 
-def render_linear(y, sr, output, *, title, n_fft=N_FFT, hop_length=HOP_LENGTH,
-                  dpi=OUTPUT_DPI, offset=0.0):
+def render_linear(
+    y, sr, output, *, title, n_fft=N_FFT, hop_length=HOP_LENGTH, dpi=OUTPUT_DPI, offset=0.0
+):
     """Draw a single-panel linear-frequency STFT spectrogram and save it.
 
     Unlike the mel figure, the frequency axis here is *linear* — the faithful
     representation in which spatial content (e.g. images hidden in a track) is
     drawn. Pair with --start/--end to zoom in on a region.
     """
-    S_db = librosa.amplitude_to_db(np.abs(librosa.stft(y, n_fft=n_fft,
-                                                        hop_length=hop_length)),
-                                   ref=np.max)
+    S_db = librosa.amplitude_to_db(
+        np.abs(librosa.stft(y, n_fft=n_fft, hop_length=hop_length)), ref=np.max
+    )
     fig, ax = plt.subplots(figsize=(28, 11), facecolor=BG)
     img = librosa.display.specshow(
-        S_db, sr=sr, hop_length=hop_length, x_axis="time", y_axis="hz",
-        ax=ax, cmap="magma", vmin=-80, vmax=0,
+        S_db,
+        sr=sr,
+        hop_length=hop_length,
+        x_axis="time",
+        y_axis="hz",
+        ax=ax,
+        cmap="magma",
+        vmin=-80,
+        vmax=0,
     )
     ax.set_facecolor(PANEL)
     ax.tick_params(colors=WHITE, labelsize=9)
     for spine in ax.spines.values():
         spine.set_edgecolor(SPINE)
     if offset:
-        ax.xaxis.set_major_formatter(
-            FuncFormatter(lambda x, _pos: f"{x + offset:.0f}s")
-        )
-    ax.set_xlabel("Time" + (f" (offset {offset:.0f}s)" if offset else " (s)"),
-                  color=WHITE)
+        ax.xaxis.set_major_formatter(FuncFormatter(lambda x, _pos: f"{x + offset:.0f}s"))
+    ax.set_xlabel("Time" + (f" (offset {offset:.0f}s)" if offset else " (s)"), color=WHITE)
     ax.set_ylabel("Hz", color=WHITE)
     cbar = fig.colorbar(img, ax=ax, format="%+2.0f dB", pad=0.01)
     cbar.ax.yaxis.set_tick_params(color=WHITE, labelcolor=WHITE)
     fig.patch.set_facecolor(BG)
-    fig.suptitle(f"{title.replace('_', ' ')} — linear STFT",
-                 color=WHITE, fontsize=14, y=0.98)
+    fig.suptitle(f"{title.replace('_', ' ')} — linear STFT", color=WHITE, fontsize=14, y=0.98)
     plt.savefig(output, dpi=dpi, bbox_inches="tight", facecolor=BG)
     plt.close(fig)
 
@@ -564,21 +742,29 @@ def analyze(
     print("  Rendering...")
     if linear:
         render_linear(
-            y, sr, output, title=filepath.stem, n_fft=n_fft,
-            hop_length=hop_length, dpi=dpi, offset=start or 0.0,
+            y,
+            sr,
+            output,
+            title=filepath.stem,
+            n_fft=n_fft,
+            hop_length=hop_length,
+            dpi=dpi,
+            offset=start or 0.0,
         )
     else:
         render_figure(
-            feat, output, title=filepath.stem, digest=digest,
-            duration_norm=duration_norm, dpi=dpi,
+            feat,
+            output,
+            title=filepath.stem,
+            digest=digest,
+            duration_norm=duration_norm,
+            dpi=dpi,
         )
     print(f"  Saved: {output}")
 
     if digest is not None:
         json_path = output.with_suffix(".json")
-        json_path.write_text(
-            json.dumps({"source": filepath.name, **digest}, indent=2) + "\n"
-        )
+        json_path.write_text(json.dumps({"source": filepath.name, **digest}, indent=2) + "\n")
         print(f"  Saved: {json_path}")
 
     return digest
@@ -590,9 +776,7 @@ def collect_inputs(inputs):
     for item in inputs:
         p = Path(item)
         if p.is_dir():
-            files.extend(
-                sorted(c for c in p.iterdir() if c.suffix.lower() in AUDIO_EXTS)
-            )
+            files.extend(sorted(c for c in p.iterdir() if c.suffix.lower() in AUDIO_EXTS))
         else:
             files.append(p)
     return files
@@ -605,40 +789,45 @@ def main(argv=None):
         "plus a JSON digest (tempo, key, dynamics, brightness, harmonicity).",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
+    parser.add_argument("inputs", nargs="+", help="Audio file(s) or directory(ies) to analyze")
+    parser.add_argument("-o", "--output", help="Output PNG path (only valid with a single input)")
     parser.add_argument(
-        "inputs", nargs="+", help="Audio file(s) or directory(ies) to analyze"
-    )
-    parser.add_argument(
-        "-o", "--output", help="Output PNG path (only valid with a single input)"
-    )
-    parser.add_argument(
-        "--linear", action="store_true",
+        "--linear",
+        action="store_true",
         help="Render a single-panel linear-frequency STFT instead of the mel "
         "figure — the faithful view for spotting images hidden in a track",
     )
     parser.add_argument(
-        "--start", type=float, default=None,
+        "--start",
+        type=float,
+        default=None,
         help="Trim to start at this time (seconds) before rendering",
     )
     parser.add_argument(
-        "--end", type=float, default=None,
+        "--end",
+        type=float,
+        default=None,
         help="Trim to end at this time (seconds) before rendering",
     )
     parser.add_argument(
-        "--no-normalize", action="store_true",
+        "--no-normalize",
+        action="store_true",
         help="Use wall-clock time on the x-axis instead of a 0–1 position",
     )
-    parser.add_argument(
-        "--no-digest", action="store_true", help="Skip the JSON digest"
-    )
+    parser.add_argument("--no-digest", action="store_true", help="Skip the JSON digest")
     parser.add_argument("--n-mels", type=int, default=N_MELS, help="Mel bands")
     parser.add_argument("--hop-length", type=int, default=HOP_LENGTH, help="STFT hop")
     parser.add_argument(
-        "--hpss-margin", type=float, default=HPSS_MARGIN,
+        "--hpss-margin",
+        type=float,
+        default=HPSS_MARGIN,
         help="Harmonic/percussive separation margin",
     )
     parser.add_argument(
-        "--n-fft", type=int, default=N_FFT, help="STFT window for --linear",
+        "--n-fft",
+        type=int,
+        default=N_FFT,
+        help="STFT window for --linear",
     )
     parser.add_argument("--dpi", type=int, default=OUTPUT_DPI, help="Output PNG DPI")
     args = parser.parse_args(argv)
