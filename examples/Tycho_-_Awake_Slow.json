@@ -1,0 +1,37 @@
+{
+  "source": "Tycho_-_Awake_Slow.mp4",
+  "duration_sec": 296.1,
+  "sample_rate": 44100,
+  "tempo_bpm": 166.7,
+  "tempo_is_estimate": true,
+  "tempo_candidates": [
+    {
+      "bpm": 166.7,
+      "support": 1.0
+    },
+    {
+      "bpm": 111.1,
+      "support": 0.755
+    },
+    {
+      "bpm": 83.4,
+      "support": 0.602
+    }
+  ],
+  "key": {
+    "tonal_center": "F",
+    "mode": "major",
+    "confidence": 0.702
+  },
+  "dynamics": {
+    "mean_db": -12.0,
+    "range_db": 8.4
+  },
+  "brightness": {
+    "mean_hz": 1737.6,
+    "trend": "rising"
+  },
+  "harmonicity": 0.976,
+  "onset_rate": 5.579,
+  "caption": "~167 BPM (or 83), F major, narrow dynamic range, warm timbre (rising), strongly harmonic."
+}
