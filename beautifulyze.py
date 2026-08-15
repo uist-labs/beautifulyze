@@ -7,10 +7,12 @@ One audio file in, two things out:
     onset strength, spectral centroid/bandwidth, RMS energy arc) on a shared,
     normalized timeline, and
   * a compact JSON digest (tempo, key, dynamics, brightness, harmonicity, …)
-    plus a one-line caption that grounds the model's reading in hard numbers.
+    plus a one-line caption assembled from those fields.
 
-Feed the model a waveform and it learns nothing. Feed it *this* and it can
-reason about structure, harmony, dynamics, and timbre at a glance.
+The panels share a timeline and a dB window, so features can be traced
+vertically between them and the harmonic and percussive components compared
+directly. Estimates carry their alternatives and confidence rather than being
+reported as single values.
 
 Usage:
     beautifulyze song.flac
