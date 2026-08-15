@@ -57,6 +57,10 @@ uv sync
 uv run beautifulyze song.flac
 ```
 
+`uv sync` builds the environment but does not put anything on `PATH`, so the
+bare `beautifulyze` command will not exist after it. Either prefix commands with
+`uv run`, or activate the environment once with `source .venv/bin/activate`.
+
 To install it as a persistent command:
 
 ```bash
@@ -227,8 +231,13 @@ installed so the decoder tests run rather than skip. Dependencies are resolved
 fresh and uncached on every run: v0.1.0 shipped a defect because librosa 1.0
 removed the `audioread` fallback and a floating `librosa>=0.11` requirement
 picked it up silently. A weekly scheduled run surfaces the next such change on
-its own. Committing `uv.lock` gives reproducible local environments while CI
-continues to test an unpinned resolve.
+its own.
+
+`uv.lock` is committed, so `uv sync` gives the same environment on every machine.
+CI does not read it — it installs from `pyproject.toml` with pip and resolves
+fresh, which is what keeps the canary working. The lock resolves across the whole
+supported range rather than pinning one interpreter's answer: librosa 0.11 below
+Python 3.12 and librosa 1.0 at or above it, since librosa 1.0 requires 3.12.
 
 ## License
 
